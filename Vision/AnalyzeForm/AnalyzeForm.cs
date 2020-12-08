@@ -124,31 +124,24 @@ namespace AzureCognitiveSearch.PowerSkills.Vision.AnalyzeForm
         {
             string uri = endpointUrl + "/formrecognizer/v2.0/custom/models/" + Uri.EscapeDataString(modelId) + "/analyze";
 
-            using (var client = new HttpClient())
+            using var client = new HttpClient();
+            using var request = new HttpRequestMessage
             {
-                using (var request = new HttpRequestMessage
+                Method = HttpMethod.Post,
+                RequestUri = new Uri(uri),
+                Content = new StringContent(JsonConvert.SerializeObject(new
                 {
-                    Method = HttpMethod.Post,
-                    RequestUri = new Uri(uri),
-                    Content = new StringContent(JsonConvert.SerializeObject(new
-                    {
-                        source = formUrl
-                    })),
-                })
-                {
-                    request.Headers.Add("Ocp-Apim-Subscription-Key", apiKey);
-                    request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
-                    using (HttpResponseMessage response = await client.SendAsync(request))
-                    {
-
-                        if (response.StatusCode != HttpStatusCode.Accepted)
-                        {
-                            throw new HttpRequestException($"The remote service {uri} responded with a {response.StatusCode} error code instead of the expected 202 Accepted.");
-                        }
-                        return response.Headers.GetValues("Operation-Location").FirstOrDefault();
-                    }
-                }
+                    source = formUrl
+                })),
+            };
+            request.Headers.Add("Ocp-Apim-Subscription-Key", apiKey);
+            request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+            using HttpResponseMessage response = await client.SendAsync(request);
+            if (response.StatusCode != HttpStatusCode.Accepted)
+            {
+                throw new HttpRequestException($"The remote service {uri} responded with a {response.StatusCode} error code instead of the expected 202 Accepted.");
             }
+            return response.Headers.GetValues("Operation-Location").FirstOrDefault();
         }
 
         /// <summary>
@@ -159,28 +152,21 @@ namespace AzureCognitiveSearch.PowerSkills.Vision.AnalyzeForm
         /// <returns></returns>
         private static async Task<(string status, JToken results)> GetJobStatus(string jobId, string apiKey)
         {
-            using (var client = new HttpClient())
+            using var client = new HttpClient();
+            using var request = new HttpRequestMessage
             {
-                using (var request = new HttpRequestMessage
-                {
-                    Method = HttpMethod.Get,
-                    RequestUri = new Uri(jobId)
-                })
-                {
-                    request.Headers.Add("Ocp-Apim-Subscription-Key", apiKey);
-                    using (HttpResponseMessage response = await client.SendAsync(request))
-                    {
-
-                        if (!response.IsSuccessStatusCode)
-                        {
-                            throw new HttpRequestException($"The remote service {jobId} responded with a {response.StatusCode} error code.");
-                        }
-                        string responseBody = await response.Content.ReadAsStringAsync();
-                        var responseObject = JObject.Parse(responseBody);
-                        return (responseObject.SelectToken("status").ToObject<string>(), responseObject);
-                    }
-                }
+                Method = HttpMethod.Get,
+                RequestUri = new Uri(jobId)
+            };
+            request.Headers.Add("Ocp-Apim-Subscription-Key", apiKey);
+            using HttpResponseMessage response = await client.SendAsync(request);
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new HttpRequestException($"The remote service {jobId} responded with a {response.StatusCode} error code.");
             }
+            string responseBody = await response.Content.ReadAsStringAsync();
+            var responseObject = JObject.Parse(responseBody);
+            return (responseObject.SelectToken("status").ToObject<string>(), responseObject);
         }
     }
 }

@@ -122,7 +122,7 @@ namespace AzureCognitiveSearch.PowerSkills.Vision.AnalyzeForm
         /// <returns>The job id that can be used in analyzeResults.</returns>
         private static async Task<string> GetJobId(string endpointUrl, string formUrl, string modelId, string apiKey)
         {
-            string uri = endpointUrl + "/formrecognizer/v2.0-preview/custom/models/" + Uri.EscapeDataString(modelId) + "/analyze";
+            string uri = endpointUrl + "/formrecognizer/v2.0/custom/models/" + Uri.EscapeDataString(modelId) + "/analyze";
 
             using (var client = new HttpClient())
             {

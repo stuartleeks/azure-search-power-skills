@@ -1,8 +1,8 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.  
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.  
 
-using Microsoft.Azure.Storage;
-using Microsoft.Azure.Storage.Blob;
+using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
 using System;
 using System.IO;
 using System.Linq;
@@ -12,24 +12,25 @@ namespace AzureCognitiveSearch.PowerSkills.Vision.ImageStore
 {
     public class BlobImageStore
     {
-        private readonly CloudBlobContainer libraryContainer;
+        private readonly BlobContainerClient _libraryContainer;
 
         public BlobImageStore(string blobConnectionString, string containerName)
         {
-            CloudStorageAccount storageAccount = CloudStorageAccount.Parse(blobConnectionString);
-            CloudBlobClient blobClient = storageAccount.CreateCloudBlobClient();
-            libraryContainer = blobClient.GetContainerReference(containerName);
+            var blobServiceClient = new BlobServiceClient(blobConnectionString);
+            _libraryContainer = blobServiceClient.GetBlobContainerClient(containerName);
         }
 
         public async Task<string> UploadImageToLibraryAsync(Stream stream, string name, string mimeType, bool overwrite = false)
         {
-            CloudBlockBlob blockBlob = libraryContainer.GetBlockBlobReference(name);
+            var blockBlob = _libraryContainer.GetBlobClient(name);
             if (!await blockBlob.ExistsAsync())
             {
-                await blockBlob.UploadFromStreamAsync(stream);
-
-                blockBlob.Properties.ContentType = mimeType;
-                await blockBlob.SetPropertiesAsync();
+                await blockBlob.UploadAsync(
+                    stream,
+                    new BlobHttpHeaders
+                    {
+                        ContentType = mimeType
+                    });
             }
 
             return blockBlob.Uri.ToString();
@@ -46,17 +47,15 @@ namespace AzureCognitiveSearch.PowerSkills.Vision.ImageStore
 
         public async Task<Image> DownloadFromBlobAsync(string imageUrl)
         {
-            string imageName = new Uri(imageUrl).Segments.Last();
-            CloudBlockBlob blockBlob = libraryContainer.GetBlockBlobReference(imageName);
+            var imageName = new Uri(imageUrl).Segments.Last();
+            var blockBlob = _libraryContainer.GetBlobClient(imageName);
             if (await blockBlob.ExistsAsync())
             {
-                using (var stream = new MemoryStream())
-                {
-                    string mimeType = blockBlob.Properties.ContentType;
-                    await blockBlob.DownloadToStreamAsync(stream);
-                    byte[] data = stream.ToArray();
-                    return new Image(imageName, data, mimeType);
-                }
+                await using var stream = new MemoryStream();
+                string mimeType = (await blockBlob.GetPropertiesAsync()).Value.ContentType;
+                await blockBlob.DownloadToAsync(stream);
+                byte[] data = stream.ToArray();
+                return new Image(imageName, data, mimeType);
             }
             return null;
         }

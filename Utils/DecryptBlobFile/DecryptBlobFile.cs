@@ -1,12 +1,14 @@
 // Copyright (c) Microsoft. All rights reserved.  
 // Licensed under the MIT License. See LICENSE file in the project root for full license information.  
 
+using Azure.Identity;
+using Azure.Storage;
+using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Specialized;
+using Azure.Security.KeyVault.Keys.Cryptography;
 using AzureCognitiveSearch.PowerSkills.Common;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Azure.KeyVault;
-using Microsoft.Azure.Services.AppAuthentication;
-using Microsoft.Azure.Storage.Blob;
 using Microsoft.Azure.WebJobs;
 using Microsoft.Azure.WebJobs.Extensions.Http;
 using Microsoft.Extensions.Logging;
@@ -36,11 +38,12 @@ namespace AzureCognitiveSearch.PowerSkills.Utils.DecryptBlobFile
 
             // Set up access to keyvault to retrieve the key to decrypt the document with
             // Requires that this Azure Function has access via managed identity to the Keyvault where the key is stored.
-            var azureServiceTokenProvider1 = new AzureServiceTokenProvider();
-            var kv = new KeyVaultClient(new KeyVaultClient.AuthenticationCallback(azureServiceTokenProvider1.KeyVaultTokenCallback));
-            KeyVaultKeyResolver cloudResolver = new KeyVaultKeyResolver(kv);
-            BlobEncryptionPolicy policy = new BlobEncryptionPolicy(null, cloudResolver);
-            BlobRequestOptions options = new BlobRequestOptions() { EncryptionPolicy = policy };
+            var credential = new DefaultAzureCredential();
+            var cloudResolver = new KeyResolver(credential);
+            var encryptionOptions = new ClientSideEncryptionOptions(ClientSideEncryptionVersion.V1_0)
+            {
+                KeyResolver = cloudResolver
+            };
 
             WebApiSkillResponse response = WebApiSkillHelpers.ProcessRequestRecords(skillName, requestRecords,
                 (inRecord, outRecord) =>
@@ -54,11 +57,18 @@ namespace AzureCognitiveSearch.PowerSkills.Utils.DecryptBlobFile
                         return outRecord;
                     }
 
-                    CloudBlockBlob blob = new CloudBlockBlob(new Uri(WebApiSkillHelpers.CombineSasTokenWithUri(blobUrl, sasToken)));
+                    var clientOptions = new SpecializedBlobClientOptions
+                    {
+                        ClientSideEncryption = encryptionOptions
+                    };
+                    var blobUriBuilder = new BlobUriBuilder(new Uri((blobUrl)));
+                    var blob = new BlobServiceClient(new Uri(WebApiSkillHelpers.CombineSasTokenWithUri(blobUrl, sasToken)), clientOptions)
+                        .GetBlobContainerClient(blobUriBuilder.BlobContainerName)
+                        .GetBlobClient(blobUriBuilder.BlobName);
                     byte[] decryptedFileData;
                     using (var np = new MemoryStream())
                     {
-                        blob.DownloadToStream(np, null, options, null);
+                        blob.DownloadTo(np);
                         decryptedFileData = np.ToArray();
                     }
                     FileReference decryptedFileReference = new FileReference()

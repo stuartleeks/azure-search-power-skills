@@ -1,14 +1,27 @@
-FROM mcr.microsoft.com/vscode/devcontainers/miniconda:0-3
+# [Choice] Debian / Ubuntu version: debian-10, debian-9, ubuntu-20.04, ubuntu-18.04
+# See https://github.com/microsoft/vscode-dev-containers/tree/master/containers/debian
+ARG VARIANT=debian-10
+FROM mcr.microsoft.com/vscode/devcontainers/base:${VARIANT}
 
-# [Option] Install Node.js
-ARG INSTALL_NODE="true"
-ARG NODE_VERSION="lts/*"
-RUN if [ "${INSTALL_NODE}" = "true" ]; then su vscode -c "umask 0002 && . /usr/local/share/nvm/nvm.sh && nvm install ${NODE_VERSION} 2>&1"; fi
 
+# Avoid warnings by switching to noninteractive
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Set env for tracking that we're running in a devcontainer
+ENV DEVCONTAINER=true
+
+# This Dockerfile adds a non-root user with sudo access. Use the "remoteUser"
+# property in devcontainer.json to use it. On Linux, the container user's GID/UIDs
+# will be updated to match your local UID/GID (when using the dockerFile property).
+# See https://aka.ms/vscode-remote/containers/non-root-user for details.
 ARG USERNAME=vscode
-USER $USERNAME
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
 
-RUN sudo chown -R $(whoami) /opt/conda 
+USER $USERNAME
+RUN \
+    mkdir -p ~/.local/bin \
+    && echo "export PATH=\$PATH:~/.local/bin" >> ~/.bashrc
 
 # Configure apt, install packages and general tools
 RUN sudo apt-get update \
@@ -16,7 +29,6 @@ RUN sudo apt-get update \
     #
     # Verify git, process tools, lsb-release (common in install instructions for CLIs) installed
     && sudo apt-get -y install git iproute2 procps lsb-release figlet build-essential
-
 
 # Save command line history
 RUN echo "export HISTFILE=/home/$USERNAME/commandhistory/.bash_history" >> "/home/$USERNAME/.bashrc" \
@@ -28,31 +40,40 @@ RUN echo "export HISTFILE=/home/$USERNAME/commandhistory/.bash_history" >> "/hom
 # Set env for tracking that we're running in a devcontainer
 ENV DEVCONTAINER=true
 
-# Copy environment.yml (if found) to a temp locaition so we update the environment. Also
-# copy "noop.txt" so the COPY instruction does not fail if no environment.yml exists.
-COPY environment.yml* .devcontainer/noop.txt /tmp/conda-tmp/
-RUN if [ -f "/tmp/conda-tmp/environment.yml" ]; then /opt/conda/bin/conda env update -n base -f /tmp/conda-tmp/environment.yml; fi \
-    && sudo rm -rf /tmp/conda-tmp
+# python3
+COPY scripts/python3.sh /tmp/
+RUN /tmp/python3.sh
 
-# TODO - collapse this/create script once done experimenting
-RUN bash --login -c "conda create -n ipykernel_py3 python=3 ipykernel -y \
-    && conda init bash"
-RUN bash --login -c "conda activate ipykernel_py3 \
-    && python -m ipykernel install --user \
-    && conda install opencv tensorflow -y"
-RUN echo "conda activate ipykernel_py3" >> /home/vscode/.bashrc
+# Add python3 aliases
+RUN echo 'alias python=python3\nalias pip=pip3' >> ~/.bashrc
+
+# terraform
+COPY scripts/terraform.sh /tmp/
+RUN /tmp/terraform.sh
+
+# azure-cli
+COPY scripts/azure-cli.sh /tmp/
+RUN /tmp/azure-cli.sh
+
+# docker-client
+COPY scripts/docker-client.sh /tmp/
+RUN /tmp/docker-client.sh
+
+#Add user to docker group
+RUN sudo groupadd docker && sudo usermod -aG docker $USERNAME && newgrp docker
+
 
 RUN sudo apt-get update \
     # libgl dependencies
     && sudo apt-get install ffmpeg libsm6 libxext6  -y 
 
-# [Optional] Uncomment to install a different version of Python than the default
-# RUN conda install -y python=3.6 \
-#     && pip install --no-cache-dir pipx \
-#     && pipx reinstall-all
+    
+# miniconda
+# COPY scripts/conda.sh /tmp/
+# RUN /tmp/conda.sh
 
-# [Optional] Uncomment this section to install additional OS packages.
-# RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
-#     && apt-get -y install --no-install-recommends <your-package-list-here>
 
 # __DEVCONTAINER_SNIPPET_INSERT__ (control where snippets get inserted using the devcontainer CLI)
+
+# Switch back to dialog for any ad-hoc use of apt-get
+ENV DEBIAN_FRONTEND=dialog
